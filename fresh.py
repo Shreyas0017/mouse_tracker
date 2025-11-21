@@ -46,6 +46,7 @@ class RatTrackerGUI:
         # Tracking variables
         self.cap = None
         self.video_source = None
+        self.is_webcam = False  # Track if using webcam
         self.current_frame = None
         self.original_frame = None
         self.is_selecting = False
@@ -277,16 +278,27 @@ class RatTrackerGUI:
         self.track_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 3))
         
         self.stop_btn = self.create_gradient_button(
-            btn_row, "⏹️ Stop", self.stop_tracking,
+            btn_row, "⏸️ Pause", self.stop_tracking,
             self.colors['accent_danger'], self.colors['accent_danger'], tk.DISABLED
         )
         self.stop_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(3, 0))
         
+        # Data management buttons
+        data_row = tk.Frame(control_frame.content, bg=self.colors['bg_light'])
+        data_row.pack(fill=tk.X, pady=3)
+        
         self.clear_btn = self.create_gradient_button(
-            control_frame.content, "🗑️ Clear Path", self.clear_path,
+            data_row, "🗑️ Clear Data", self.clear_path,
             '#ff8800', '#ff8800'
         )
-        self.clear_btn.pack(fill=tk.X, pady=3)
+        self.clear_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 3))
+        
+        # Stop Recording button (only for webcam)
+        self.stop_recording_btn = self.create_gradient_button(
+            data_row, "⏹️ Stop Recording", self.stop_recording,
+            '#cc0000', '#cc0000', tk.DISABLED
+        )
+        self.stop_recording_btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(3, 0))
         
         # Settings Section
         settings_frame = self.create_section_frame(inner_left, "⚙️ Settings")
@@ -455,6 +467,7 @@ class RatTrackerGUI:
             self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
             self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
             self.video_source = 0
+            self.is_webcam = True
             # determine FPS for consistent playback
             try:
                 fps = float(self.cap.get(cv2.CAP_PROP_FPS))
@@ -483,6 +496,7 @@ class RatTrackerGUI:
             self.cap = cv2.VideoCapture(filename)
             if self.cap.isOpened():
                 self.video_source = filename
+                self.is_webcam = False
                 # read FPS from file to keep playback speed correct
                 try:
                     fps = float(self.cap.get(cv2.CAP_PROP_FPS))
@@ -1077,11 +1091,15 @@ class RatTrackerGUI:
         self.update_button_state(self.stop_btn, tk.NORMAL)
         self.update_button_state(self.select_btn, tk.DISABLED)
         
+        # Enable Stop Recording only for webcam
+        if self.is_webcam:
+            self.update_button_state(self.stop_recording_btn, tk.NORMAL)
+        
         self.status_label.config(text=f"🔴 Tracking {selected} mice...", 
                                 fg=self.colors['accent_success'])
     
     def stop_tracking(self):
-        """Stop tracking all mice"""
+        """Pause tracking all mice"""
         self.is_tracking = False
         self.preview_paused = True
         
@@ -1094,8 +1112,29 @@ class RatTrackerGUI:
         if unselected > 0:
             self.update_button_state(self.select_btn, tk.NORMAL)
         
-        self.status_label.config(text="⏸️ Tracking stopped", 
+        self.status_label.config(text="⏸️ Tracking paused", 
                                 fg=self.colors['accent_warning'])
+    
+    def stop_recording(self):
+        """Stop recording and show save dialog (webcam only)"""
+        if not self.is_webcam:
+            return
+        
+        # Stop tracking
+        self.is_tracking = False
+        self.preview_paused = True
+        
+        # Update buttons
+        self.update_button_state(self.track_btn, tk.DISABLED)
+        self.update_button_state(self.stop_btn, tk.DISABLED)
+        self.update_button_state(self.select_btn, tk.DISABLED)
+        self.update_button_state(self.stop_recording_btn, tk.DISABLED)
+        
+        self.status_label.config(text="⚪ Recording stopped", 
+                                fg=self.colors['text_secondary'])
+        
+        # Show save summary
+        self.show_save_summary()
     
     def clear_path(self):
         """Clear all paths and reset statistics"""
@@ -1137,6 +1176,7 @@ class RatTrackerGUI:
         self.current_mouse_index = 0
         self.current_frame = None
         self.original_frame = None
+        self.is_webcam = False
         
         # Reset UI
         try:
@@ -1151,6 +1191,7 @@ class RatTrackerGUI:
         self.update_button_state(self.track_btn, tk.DISABLED)
         self.update_button_state(self.stop_btn, tk.DISABLED)
         self.update_button_state(self.select_btn, tk.DISABLED)
+        self.update_button_state(self.stop_recording_btn, tk.DISABLED)
     
     def on_closing(self):
         """Handle window closing"""
