@@ -47,6 +47,7 @@ class RatTrackerGUI:
         self.cap = None
         self.video_source = None
         self.is_webcam = False  # Track if using webcam
+        self.camera_index = 0  # Default camera index
         self.current_frame = None
         self.original_frame = None
         self.is_selecting = False
@@ -214,6 +215,12 @@ class RatTrackerGUI:
             self.colors['accent_primary'], self.colors['accent_primary']
         )
         self.webcam_btn.pack(fill=tk.X, pady=2)
+        
+        self.camera_select_btn = self.create_gradient_button(
+            source_frame.content, "📷 Select Camera", self.select_camera,
+            '#9C27B0', '#9C27B0'
+        )
+        self.camera_select_btn.pack(fill=tk.X, pady=2)
         
         self.video_btn = self.create_gradient_button(
             source_frame.content, "📁 Load Video File", self.load_video,
@@ -458,15 +465,72 @@ class RatTrackerGUI:
                                    fill=self.colors['text_secondary'], 
                                    font=('Segoe UI', 11))
 
+    def detect_cameras(self):
+        """Detect available cameras"""
+        available_cameras = []
+        # Test camera indices 0-9
+        for i in range(10):
+            cap = cv2.VideoCapture(i)
+            if cap.isOpened():
+                available_cameras.append(i)
+                cap.release()
+        return available_cameras
+    
+    def select_camera(self):
+        """Open dialog to select camera"""
+        available_cameras = self.detect_cameras()
+        
+        if not available_cameras:
+            messagebox.showerror("Error", "No cameras detected!")
+            return
+        
+        # Create camera selection dialog
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Select Camera")
+        dialog.geometry("300x200")
+        dialog.configure(bg=self.colors['bg_dark'])
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        # Center the dialog
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() // 2) - (dialog.winfo_width() // 2)
+        y = (dialog.winfo_screenheight() // 2) - (dialog.winfo_height() // 2)
+        dialog.geometry(f"+{x}+{y}")
+        
+        tk.Label(dialog, text="Select Camera:", 
+                bg=self.colors['bg_dark'], 
+                fg=self.colors['text_primary'],
+                font=('Segoe UI', 12, 'bold')).pack(pady=20)
+        
+        # Create buttons for each camera
+        for cam_idx in available_cameras:
+            btn = tk.Button(dialog, 
+                          text=f"Camera {cam_idx}", 
+                          command=lambda idx=cam_idx: self.set_camera(idx, dialog),
+                          font=('Segoe UI', 10),
+                          bg=self.colors['accent_primary'], 
+                          fg='white',
+                          activebackground=self.colors['accent_primary'],
+                          relief=tk.FLAT,
+                          padx=20, pady=10,
+                          cursor='hand2')
+            btn.pack(fill=tk.X, padx=30, pady=5)
+    
+    def set_camera(self, camera_index, dialog):
+        """Set the selected camera index"""
+        self.camera_index = camera_index
+        dialog.destroy()
+        messagebox.showinfo("Camera Selected", f"Camera {camera_index} selected!\nClick 'Use Webcam' to start.")
     
     def use_webcam(self):
         """Initialize webcam"""
         self.stop_video()
-        self.cap = cv2.VideoCapture(0)
+        self.cap = cv2.VideoCapture(self.camera_index)
         if self.cap.isOpened():
             self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
             self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
-            self.video_source = 0
+            self.video_source = self.camera_index
             self.is_webcam = True
             # determine FPS for consistent playback
             try:
