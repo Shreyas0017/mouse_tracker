@@ -847,23 +847,34 @@ class RatTrackerGUI:
     def draw_all_paths(self, frame):
         """Draw tracked paths for all mice with their colors"""
         for mouse_data in self.mice:
-            if len(mouse_data['path_points']) < 2:
+            if not mouse_data['path_points']:
                 continue
             
             color = mouse_data['color']
-            thickness = 2
+            path_points = list(mouse_data['path_points'])
             
-            # Draw path
-            for i in range(1, len(mouse_data['path_points'])):
-                cv2.line(frame, mouse_data['path_points'][i-1], mouse_data['path_points'][i], color, thickness)
+            # Draw path lines if we have at least 2 points
+            if len(path_points) >= 2:
+                thickness = 3
+                for i in range(1, len(path_points)):
+                    cv2.line(frame, path_points[i-1], path_points[i], color, thickness)
             
-            # Draw current position marker
-            if mouse_data['path_points']:
-                last_point = mouse_data['path_points'][-1]
+            # Draw all points as small circles for better visibility
+            for point in path_points:
+                cv2.circle(frame, point, 2, color, -1)
+            
+            # Draw current position marker with label
+            if path_points:
+                last_point = path_points[-1]
                 # Outer circle
-                cv2.circle(frame, last_point, 6, color, 2)
+                cv2.circle(frame, last_point, 8, color, 2)
                 # Inner filled circle
-                cv2.circle(frame, last_point, 3, color, -1)
+                cv2.circle(frame, last_point, 4, color, -1)
+                
+                # Draw mouse label
+                label = f"Mouse {mouse_data['id']}"
+                label_pos = (last_point[0] + 12, last_point[1] - 12)
+                cv2.putText(frame, label, label_pos, cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
     
     def draw_aggregate_stats(self, frame):
         """Draw aggregate statistics for all mice on the frame."""
