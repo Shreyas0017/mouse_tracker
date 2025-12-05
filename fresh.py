@@ -70,7 +70,6 @@ class RatTrackerGUI:
         # Video timing
         self.fps = None
         self.frame_interval = 0.033
-        self.speed_multiplier = 1.0  # Video playback speed multiplier
         
         # Colors for different mice
         self.mouse_colors = [
@@ -199,12 +198,6 @@ class RatTrackerGUI:
         
         canvas_scroll.create_window((0, 0), window=scrollable_frame, anchor="nw")
         canvas_scroll.configure(yscrollcommand=scrollbar.set)
-        
-        # Bind mouse wheel for scrolling
-        def on_mousewheel(event):
-            canvas_scroll.yview_scroll(int(-1*(event.delta/120)), "units")
-        
-        canvas_scroll.bind_all("<MouseWheel>", on_mousewheel)
         
         canvas_scroll.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
@@ -349,28 +342,6 @@ class RatTrackerGUI:
                                          command=lambda v: self.update_max_points(v, points_value_label))
         self.max_points_scale.pack(fill=tk.X, pady=5)
         
-        # Video speed slider
-        speed_slider_frame = tk.Frame(settings_frame.content, bg=self.colors['bg_light'])
-        speed_slider_frame.pack(fill=tk.X, pady=5)
-        
-        tk.Label(speed_slider_frame, text="Video Speed", 
-                bg=self.colors['bg_light'], fg=self.colors['text_primary'], 
-                font=('Segoe UI', 10, 'bold')).pack(anchor=tk.W, pady=(5, 0))
-        
-        self.speed_var = tk.DoubleVar(value=1.0)
-        speed_value_label = tk.Label(speed_slider_frame, text="1.0x", 
-                                     bg=self.colors['bg_light'], 
-                                     fg=self.colors['accent_primary'],
-                                     font=('Segoe UI', 10, 'bold'))
-        speed_value_label.pack(anchor=tk.E)
-        
-        self.speed_scale = ttk.Scale(speed_slider_frame, from_=0.25, to=4.0,
-                                    orient=tk.HORIZONTAL, 
-                                    variable=self.speed_var,
-                                    style="Custom.Horizontal.TScale",
-                                    command=lambda v: self.update_speed(v, speed_value_label))
-        self.speed_scale.pack(fill=tk.X, pady=5)
-        
         # Info Section with status
         info_frame = self.create_section_frame(inner_left, "ℹ️ Status")
         info_frame.pack(fill=tk.X, pady=(0, 8))
@@ -449,19 +420,19 @@ class RatTrackerGUI:
     def create_stat_card(self, parent, label, value, color):
         """Create a stat card for the top bar"""
         card = tk.Frame(parent, bg=self.colors['bg_light'], 
-                       highlightthickness=2, highlightbackground=color)
+                       highlightthickness=1, highlightbackground=color)
         
         label_widget = tk.Label(card, text=label, 
-                               font=('Segoe UI', 10, 'bold'), 
+                               font=('Segoe UI', 9), 
                                bg=self.colors['bg_light'], 
                                fg=self.colors['text_secondary'])
-        label_widget.pack(padx=12, pady=(8, 2))
+        label_widget.pack(padx=10, pady=(6, 2))
         
         value_label = tk.Label(card, text=value, 
-                              font=('Segoe UI', 14, 'bold'), 
+                              font=('Segoe UI', 11, 'bold'), 
                               bg=self.colors['bg_light'], 
                               fg=color)
-        value_label.pack(padx=12, pady=(2, 8))
+        value_label.pack(padx=10, pady=(2, 6))
         
         card.value_label = value_label
         return card
@@ -654,6 +625,7 @@ class RatTrackerGUI:
                     success, bbox = mouse_data['tracker'].update(self.original_frame)
                     if success:
                         mouse_data['bbox'] = bbox
+                        mouse_data['final_bbox'] = bbox  # Update final ROI position
                         center_x = int(bbox[0] + bbox[2] / 2)
                         center_y = int(bbox[1] + bbox[3] / 2)
                         current_point = (center_x, center_y)
@@ -664,14 +636,19 @@ class RatTrackerGUI:
                             distance = math.hypot(current_point[0] - prev_point[0], current_point[1] - prev_point[1])
                             mouse_data['total_distance'] += distance
 
-                            # Instantaneous speed - use frame_interval for consistent measurement regardless of playback speed
-                            inst_speed = distance / self.frame_interval
+                            # Instantaneous speed
+                            now = frame_capture_time if frame_capture_time else time.time()
+                            if mouse_data['prev_time']:
+                                dt = now - mouse_data['prev_time']
+                            else:
+                                dt = self.frame_interval
+                            if dt <= 0:
+                                dt = self.frame_interval
+                            
+                            inst_speed = distance / dt
                             mouse_data['current_speed'] = inst_speed
                             if inst_speed > mouse_data['highest_speed']:
                                 mouse_data['highest_speed'] = inst_speed
-                        else:
-                            # Initialize speed for first point
-                            mouse_data['current_speed'] = 0.0
 
                         mouse_data['prev_time'] = frame_capture_time if frame_capture_time else time.time()
                         mouse_data['path_points'].append(current_point)
@@ -692,22 +669,11 @@ class RatTrackerGUI:
                         # Main box
                         cv2.rectangle(self.current_frame, p1, p2, color, 3)
 
-                        # Label with speed display
+                        # Label
                         label = f"Mouse {mouse_data['id']}"
-                        label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)[0]
-                        cv2.rectangle(self.current_frame, (p1[0], p1[1] - label_size[1] - 14), (p1[0] + label_size[0] + 10, p1[1]), color, -1)
-                        cv2.putText(self.current_frame, label, (p1[0] + 5, p1[1] - 7), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2)
-                        
-                        # Speed display below bounding box
-                        speed_text = f"{mouse_data['current_speed']:.1f} px/s"
-                        speed_size = cv2.getTextSize(speed_text, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0]
-                        speed_y = p2[1] + 25
-                        cv2.rectangle(self.current_frame, (p1[0], speed_y - speed_size[1] - 8), 
-                                    (p1[0] + speed_size[0] + 10, speed_y + 3), (0, 0, 0), -1)
-                        cv2.rectangle(self.current_frame, (p1[0], speed_y - speed_size[1] - 8), 
-                                    (p1[0] + speed_size[0] + 10, speed_y + 3), color, 2)
-                        cv2.putText(self.current_frame, speed_text, (p1[0] + 5, speed_y - 3), 
-                                  cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+                        label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0]
+                        cv2.rectangle(self.current_frame, (p1[0], p1[1] - label_size[1] - 12), (p1[0] + label_size[0] + 8, p1[1]), color, -1)
+                        cv2.putText(self.current_frame, label, (p1[0] + 4, p1[1] - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
                     else:
                         # Tracking lost
                         mouse_data['current_speed'] = 0.0
@@ -740,16 +706,14 @@ class RatTrackerGUI:
             # Update UI statistics
             self.update_aggregate_ui_stats()
 
-            # Sleep to respect video FPS with speed multiplier
+            # Sleep to respect video FPS
             if should_fetch_frame and self.fps and self.fps > 0:
                 elapsed = time.time() - loop_start
-                # Divide by speed multiplier to go faster or slower
-                adjusted_interval = self.frame_interval / self.speed_multiplier
-                remaining = adjusted_interval - elapsed
+                remaining = self.frame_interval - elapsed
                 if remaining > 0:
                     time.sleep(remaining)
             else:
-                time.sleep(0.03 / self.speed_multiplier)
+                time.sleep(0.03)
 
     def handle_video_end_ui(self):
         """Run on the main thread when a video file ends: stop tracking and show save dialog"""
@@ -845,9 +809,15 @@ class RatTrackerGUI:
         try:
             with open(filename, 'w', newline='') as f:
                 writer = csv.writer(f)
-                writer.writerow(['mouse_id', 'frame_index', 'x', 'y', 'total_distance', 'avg_speed', 'max_speed'])
+                writer.writerow(['mouse_id', 'frame_index', 'x', 'y', 'total_distance', 'avg_speed', 'max_speed', 
+                               'initial_roi_x', 'initial_roi_y', 'initial_roi_w', 'initial_roi_h',
+                               'final_roi_x', 'final_roi_y', 'final_roi_w', 'final_roi_h'])
                 
                 for mouse_data in self.mice:
+                    # Get initial and final ROI data
+                    initial_bbox = mouse_data.get('initial_bbox', (0, 0, 0, 0))
+                    final_bbox = mouse_data.get('final_bbox', (0, 0, 0, 0))
+                    
                     for i, p in enumerate(mouse_data['path_points']):
                         writer.writerow([
                             mouse_data['id'],
@@ -856,7 +826,15 @@ class RatTrackerGUI:
                             p[1],
                             round(mouse_data['total_distance'], 2),
                             round(mouse_data['avg_speed'], 2),
-                            round(mouse_data['highest_speed'], 2)
+                            round(mouse_data['highest_speed'], 2),
+                            int(initial_bbox[0]),
+                            int(initial_bbox[1]),
+                            int(initial_bbox[2]),
+                            int(initial_bbox[3]),
+                            int(final_bbox[0]),
+                            int(final_bbox[1]),
+                            int(final_bbox[2]),
+                            int(final_bbox[3])
                         ])
             messagebox.showinfo("Saved", f"Paths saved to {filename}")
         except Exception as e:
@@ -900,70 +878,54 @@ class RatTrackerGUI:
             for point in path_points:
                 cv2.circle(frame, point, 2, color, -1)
             
-            # Draw STARTING point marker with "START" label
-            if path_points:
-                start_point = path_points[0]
-                # Large outer circle for start
-                cv2.circle(frame, start_point, 12, (255, 255, 255), 3)  # White outer
-                cv2.circle(frame, start_point, 10, color, 2)  # Colored middle
-                cv2.circle(frame, start_point, 5, color, -1)  # Filled center
-                
-                # "START" label
-                start_label = "START"
-                start_label_pos = (start_point[0] - 25, start_point[1] - 18)
-                cv2.putText(frame, start_label, start_label_pos, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
-                cv2.putText(frame, start_label, start_label_pos, cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+            # Draw INITIAL ROI (First Frame) with green border
+            if mouse_data.get('initial_bbox'):
+                ix, iy, iw, ih = mouse_data['initial_bbox']
+                ix, iy, iw, ih = int(ix), int(iy), int(iw), int(ih)
+                # Draw rectangle for initial ROI
+                cv2.rectangle(frame, (ix, iy), (ix + iw, iy + ih), (0, 255, 0), 3)
+                # Label
+                label = f"Mouse {mouse_data['id']} - START"
+                label_pos = (ix, iy - 10)
+                cv2.putText(frame, label, label_pos, cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
             
-            # Draw ENDING point marker with "END" label
-            if path_points and len(path_points) > 1:
-                end_point = path_points[-1]
-                # Large square for end
-                offset = 10
-                cv2.rectangle(frame, 
-                            (end_point[0] - offset, end_point[1] - offset),
-                            (end_point[0] + offset, end_point[1] + offset),
-                            (255, 255, 255), 3)  # White outer
-                cv2.rectangle(frame, 
-                            (end_point[0] - offset + 2, end_point[1] - offset + 2),
-                            (end_point[0] + offset - 2, end_point[1] + offset - 2),
-                            color, -1)  # Filled with color
-                
-                # "END" label with mouse ID
-                end_label = f"END - Mouse {mouse_data['id']}"
-                end_label_pos = (end_point[0] + 15, end_point[1] - 15)
-                cv2.putText(frame, end_label, end_label_pos, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
-                cv2.putText(frame, end_label, end_label_pos, cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+            # Draw FINAL ROI (Last Frame) with red border
+            if mouse_data.get('final_bbox'):
+                fx, fy, fw, fh = mouse_data['final_bbox']
+                fx, fy, fw, fh = int(fx), int(fy), int(fw), int(fh)
+                # Draw rectangle for final ROI
+                cv2.rectangle(frame, (fx, fy), (fx + fw, fy + fh), (0, 0, 255), 3)
+                # Label
+                label = f"Mouse {mouse_data['id']} - END"
+                label_pos = (fx, fy - 10)
+                cv2.putText(frame, label, label_pos, cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
     
     def draw_aggregate_stats(self, frame):
         """Draw aggregate statistics for all mice on the frame."""
         try:
             h, w = frame.shape[:2]
             
-            # Position for stats overlay (top-right)
-            x_start = w - 280
+            # Position for stats overlay (top-right below speed meter if present)
+            x_start = w - 250
             y_start = 20
-            box_height = 40 + len(self.mice) * 28
             
-            # Semi-transparent background with better styling
+            # Semi-transparent background
             overlay = frame.copy()
-            cv2.rectangle(overlay, (x_start - 15, y_start - 10), (w - 15, y_start + box_height), (20, 20, 20), -1)
-            cv2.addWeighted(overlay, 0.75, frame, 0.25, 0, frame)
+            cv2.rectangle(overlay, (x_start - 10, y_start - 5), (w - 10, y_start + 30 + len(self.mice) * 20), (30, 30, 30), -1)
+            cv2.addWeighted(overlay, 0.7, frame, 0.3, 0, frame)
             
-            # Border
-            cv2.rectangle(frame, (x_start - 15, y_start - 10), (w - 15, y_start + box_height), (100, 100, 100), 2)
+            # Title
+            cv2.putText(frame, f"Tracking {len([m for m in self.mice if m['tracker']])}/{self.num_mice} mice", 
+                       (x_start, y_start + 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
             
-            # Title - larger and bolder
-            cv2.putText(frame, f"Tracking {len([m for m in self.mice if m['tracker']])}/{self.num_mice} Mice", 
-                       (x_start, y_start + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-            
-            # Individual mouse stats with larger fonts
-            y_offset = y_start + 50
+            # Individual mouse stats (brief)
+            y_offset = y_start + 35
             for mouse_data in self.mice:
                 if mouse_data['tracker']:
                     color = mouse_data['color']
-                    text = f"Mouse {mouse_data['id']}: {mouse_data['current_speed']:.1f} px/s"
-                    cv2.putText(frame, text, (x_start, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2)
-                    y_offset += 28
+                    text = f"M{mouse_data['id']}: {mouse_data['current_speed']:.0f} px/s"
+                    cv2.putText(frame, text, (x_start, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
+                    y_offset += 18
         except Exception:
             pass
     
@@ -1009,6 +971,8 @@ class RatTrackerGUI:
                 'id': i + 1,
                 'tracker': None,
                 'bbox': None,
+                'initial_bbox': None,  # Store first frame ROI
+                'final_bbox': None,    # Store last frame ROI
                 'path_points': deque(maxlen=self.max_points_var.get()),
                 'total_distance': 0,
                 'avg_speed': 0,
@@ -1188,18 +1152,10 @@ class RatTrackerGUI:
         if mouse_index < 0 or mouse_index >= len(self.mice):
             return
         
-        # Use KCF tracker - faster and more robust than CSRT
         try:
-            tracker = cv2.legacy.TrackerKCF_create()
+            tracker = cv2.legacy.TrackerCSRT_create()
         except AttributeError:
-            try:
-                tracker = cv2.TrackerKCF_create()
-            except AttributeError:
-                # Fallback to CSRT if KCF not available
-                try:
-                    tracker = cv2.legacy.TrackerCSRT_create()
-                except AttributeError:
-                    tracker = cv2.TrackerCSRT_create()
+            tracker = cv2.TrackerCSRT_create()
         
         tracker.init(self.original_frame, bbox)
         
@@ -1207,6 +1163,8 @@ class RatTrackerGUI:
         mouse_data = self.mice[mouse_index]
         mouse_data['tracker'] = tracker
         mouse_data['bbox'] = bbox
+        mouse_data['initial_bbox'] = bbox  # Store initial ROI
+        mouse_data['final_bbox'] = bbox    # Initialize final ROI
         
         # Add initial point
         center_x = int(bbox[0] + bbox[2] / 2)
@@ -1302,12 +1260,6 @@ class RatTrackerGUI:
         # Update maxlen for all mice
         for mouse_data in self.mice:
             mouse_data['path_points'] = deque(mouse_data['path_points'], maxlen=int_value)
-    
-    def update_speed(self, value, label):
-        """Update video playback speed multiplier"""
-        speed = float(value)
-        self.speed_multiplier = speed
-        label.config(text=f"{speed:.2f}x")
     
     def stop_video(self):
         """Stop video capture and reset"""
