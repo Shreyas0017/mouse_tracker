@@ -200,6 +200,12 @@ class RatTrackerGUI:
         canvas_scroll.create_window((0, 0), window=scrollable_frame, anchor="nw")
         canvas_scroll.configure(yscrollcommand=scrollbar.set)
         
+        # Bind mouse wheel for scrolling
+        def on_mousewheel(event):
+            canvas_scroll.yview_scroll(int(-1*(event.delta/120)), "units")
+        
+        canvas_scroll.bind_all("<MouseWheel>", on_mousewheel)
+        
         canvas_scroll.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
         
