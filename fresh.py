@@ -70,6 +70,7 @@ class RatTrackerGUI:
         # Video timing
         self.fps = None
         self.frame_interval = 0.033
+        self.speed_multiplier = 1.0  # Video playback speed multiplier
         
         # Colors for different mice
         self.mouse_colors = [
@@ -341,6 +342,28 @@ class RatTrackerGUI:
                                          style="Custom.Horizontal.TScale",
                                          command=lambda v: self.update_max_points(v, points_value_label))
         self.max_points_scale.pack(fill=tk.X, pady=5)
+        
+        # Video speed slider
+        speed_slider_frame = tk.Frame(settings_frame.content, bg=self.colors['bg_light'])
+        speed_slider_frame.pack(fill=tk.X, pady=5)
+        
+        tk.Label(speed_slider_frame, text="Video Speed", 
+                bg=self.colors['bg_light'], fg=self.colors['text_primary'], 
+                font=('Segoe UI', 10, 'bold')).pack(anchor=tk.W, pady=(5, 0))
+        
+        self.speed_var = tk.DoubleVar(value=1.0)
+        speed_value_label = tk.Label(speed_slider_frame, text="1.0x", 
+                                     bg=self.colors['bg_light'], 
+                                     fg=self.colors['accent_primary'],
+                                     font=('Segoe UI', 10, 'bold'))
+        speed_value_label.pack(anchor=tk.E)
+        
+        self.speed_scale = ttk.Scale(speed_slider_frame, from_=0.25, to=4.0,
+                                    orient=tk.HORIZONTAL, 
+                                    variable=self.speed_var,
+                                    style="Custom.Horizontal.TScale",
+                                    command=lambda v: self.update_speed(v, speed_value_label))
+        self.speed_scale.pack(fill=tk.X, pady=5)
         
         # Info Section with status
         info_frame = self.create_section_frame(inner_left, "ℹ️ Status")
@@ -706,14 +729,16 @@ class RatTrackerGUI:
             # Update UI statistics
             self.update_aggregate_ui_stats()
 
-            # Sleep to respect video FPS
+            # Sleep to respect video FPS with speed multiplier
             if should_fetch_frame and self.fps and self.fps > 0:
                 elapsed = time.time() - loop_start
-                remaining = self.frame_interval - elapsed
+                # Divide by speed multiplier to go faster or slower
+                adjusted_interval = self.frame_interval / self.speed_multiplier
+                remaining = adjusted_interval - elapsed
                 if remaining > 0:
                     time.sleep(remaining)
             else:
-                time.sleep(0.03)
+                time.sleep(0.03 / self.speed_multiplier)
 
     def handle_video_end_ui(self):
         """Run on the main thread when a video file ends: stop tracking and show save dialog"""
@@ -1260,6 +1285,12 @@ class RatTrackerGUI:
         # Update maxlen for all mice
         for mouse_data in self.mice:
             mouse_data['path_points'] = deque(mouse_data['path_points'], maxlen=int_value)
+    
+    def update_speed(self, value, label):
+        """Update video playback speed multiplier"""
+        speed = float(value)
+        self.speed_multiplier = speed
+        label.config(text=f"{speed:.2f}x")
     
     def stop_video(self):
         """Stop video capture and reset"""
